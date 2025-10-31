@@ -6,8 +6,7 @@ rust-version = "1.74"
 authors = ["themahikaishar <themahikaishar@gmail.com"]
 description = "A Rust crate for parsing HTML documents. It supports reading HTML documents in an event-based fashion."
 repository = "https://github.com/themahikaishar/parsed-html"
-keywords = ["web", "html", "parser", "parsing", "reader"]
-categories = ["parser", "parser-implementations"]
+license = "GPL-2.0"
 readme = "README.md"
 include = ["src/**", "README.md"]
 
