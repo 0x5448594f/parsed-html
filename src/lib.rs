@@ -29,7 +29,10 @@ impl Lexer {
                 break;
             }
 
-            // TODO: Implement html declaration eg, `<!Doctype html>`.
+            if self.content.len() > 1 && self.content[0] == '<' && self.content[1] == '!' {
+                self.take_doctype();
+            }
+
             // TODO: Implement html comment.
             // TODO: Implement not closing tag eg, `<meta ...>`
 
@@ -50,6 +53,27 @@ impl Lexer {
         }
 
         &self.events
+    }
+
+    fn take_doctype(&mut self) {
+        let tag_name = self.take_tag_name(2);
+        self.events.push(Event::StartElement(tag_name.clone()));
+
+        self.take_whitespaces();
+        let doctype_type = 
+            self.take_while(|x| x.is_alphabetic());
+
+        if doctype_type != "html" {
+            eprintln!("ERROR: Invalid Doctype `{doctype_type}`.");
+        }
+
+        self.take_whitespaces();
+
+        if self.content[0] == '>' {
+            self.get_slice(0, 1);
+        } else {
+            eprintln!("ERROR: Invalid closing tag with extra args.");
+        }
     }
 
     // `</TAG_NAME>``
