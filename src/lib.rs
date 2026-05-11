@@ -12,6 +12,9 @@ pub struct Lexer {
     events: Vec<Event>,
 }
 
+// ADD MORE NON-CLOSING TAGS
+const NON_CLOSING_TAG_NAME: [ &str;3 ] = [ "meta", "hr", "br" ];
+
 impl Lexer {
     pub fn new(content: String) -> Self {
         Self {
@@ -34,7 +37,6 @@ impl Lexer {
             }
 
             // TODO: Implement html comment.
-            // TODO: Implement not closing tag eg, `<meta ...>`
 
             // End element
             if self.content.len() > 1 && self.content[0] == '<' && self.content[1] == '/' {
@@ -58,16 +60,24 @@ impl Lexer {
     fn take_doctype(&mut self) {
         let tag_name = self.take_tag_name(2);
         self.events.push(Event::StartElement(tag_name.clone()));
+        self.tag_stack.push(tag_name.clone());
 
         self.take_whitespaces();
         let doctype_type = 
             self.take_while(|x| x.is_alphabetic());
 
-        if doctype_type != "html" {
-            eprintln!("ERROR: Invalid Doctype `{doctype_type}`.");
-        }
+        // LET THE DEV USE THE DOCTYPE TYPE DETECTION
+        self.events.push(Event::Attribute("type".to_string(), doctype_type));
 
         self.take_whitespaces();
+
+        // End element validation
+        if self.tag_stack.last() == Some(&tag_name) {
+            self.tag_stack.pop();
+            self.events.push(Event::EndElement(tag_name.clone()));
+        } else {
+            eprintln!("ERROR: Invalid closing tag `{tag_name}`.")
+        }
 
         if self.content[0] == '>' {
             self.get_slice(0, 1);
@@ -101,7 +111,7 @@ impl Lexer {
     fn take_start_element(&mut self) {
         let tag_name = self.take_tag_name(1);
         self.events.push(Event::StartElement(tag_name.clone()));
-        self.tag_stack.push(tag_name);
+        self.tag_stack.push(tag_name.clone());
 
         self.take_attributes();
         self.take_whitespaces();
@@ -119,6 +129,15 @@ impl Lexer {
         // EXPECTED `>`
         else if self.content[0] == '>' {
             self.get_slice(0, 1);
+
+            // DETECT IF IT'S A NON-CLOSING TAG
+            if NON_CLOSING_TAG_NAME.contains(&tag_name.as_str()) {
+                if let Some(last_tag) = self.tag_stack.pop() {
+                    self.events.push(Event::EndElement(last_tag));
+                } else {
+                    eprintln!("ERROR: there is no tag.");
+                }
+            }
         } else {
             eprintln!("ERROR: expected `>` on start element.");
         }
