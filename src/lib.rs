@@ -6,19 +6,19 @@ pub enum Event {
     Attribute(String, String),
 }
 
-pub struct Lexer {
-    content: Vec<char>,
+pub struct Lexer<'a> {
+    content: &'a [u8],
     tag_stack: Vec<String>,
     events: Vec<Event>,
 }
 
 // ADD MORE NON-CLOSING TAGS
-const NON_CLOSING_TAG_NAME: [ &str;3 ] = [ "meta", "hr", "br" ];
+const NON_CLOSING_TAG_NAME: [ &str;6 ] = [ "meta", "hr", "br", "input", "link", "img" ];
 
-impl Lexer {
-    pub fn new(content: String) -> Self {
+impl<'a> Lexer<'a> {
+    pub fn new(content: &'a str) -> Self {
         Self {
-            content: content.chars().collect::<Vec<char>>(),
+            content: content.as_bytes(),
             tag_stack: Vec::new(),
             events: Vec::new(),
         }
@@ -32,20 +32,23 @@ impl Lexer {
                 break;
             }
 
-            if self.content.len() > 1 && self.content[0] == '<' && self.content[1] == '!' {
+            if self.content.len() > 1 && self.content[0] == 60 && self.content[1] == 33 {
                 self.take_doctype();
+                continue
             }
 
             // TODO: Implement html comment.
 
             // End element
-            if self.content.len() > 1 && self.content[0] == '<' && self.content[1] == '/' {
+            if self.content.len() > 1 && self.content[0] == 60 && self.content[1] == 47 {
                 self.take_end_element();
+                continue
             }
 
             // Start element
-            if !self.content.is_empty() && self.content[0] == '<' {
+            if !self.content.is_empty() && self.content[0] == 60 {
                 self.take_start_element();
+                continue
             }
 
             // Text content
@@ -64,7 +67,7 @@ impl Lexer {
 
         self.take_whitespaces();
         let doctype_type = 
-            self.take_while(|x| x.is_alphabetic());
+            self.take_while(|x| x.is_ascii_alphabetic());
 
         // LET THE DEV USE THE DOCTYPE TYPE DETECTION
         self.events.push(Event::Attribute("type".to_string(), doctype_type));
@@ -79,7 +82,7 @@ impl Lexer {
             eprintln!("ERROR: Invalid closing tag `{tag_name}`.")
         }
 
-        if self.content[0] == '>' {
+        if self.content[0] == 62 {
             self.get_slice(0, 1);
         } else {
             eprintln!("ERROR: Invalid closing tag with extra args.");
@@ -100,7 +103,7 @@ impl Lexer {
 
         self.take_whitespaces();
 
-        if self.content[0] == '>' {
+        if self.content[0] == 62 {
             self.get_slice(0, 1);
         } else {
             eprintln!("ERROR: Invalid closing tag with extra args.");
@@ -117,7 +120,7 @@ impl Lexer {
         self.take_whitespaces();
 
         // SELF_END_ELEMENT `/>`
-        if self.content.len() > 1 && self.content[0] == '/' && self.content[1] == '>' {
+        if self.content.len() > 1 && self.content[0] == 47 && self.content[1] == 62 {
             self.get_slice(0, 2);
 
             if let Some(last_tag) = self.tag_stack.pop() {
@@ -127,7 +130,7 @@ impl Lexer {
             }
         }
         // EXPECTED `>`
-        else if self.content[0] == '>' {
+        else if self.content[0] == 62 {
             self.get_slice(0, 1);
 
             // DETECT IF IT'S A NON-CLOSING TAG
@@ -144,14 +147,22 @@ impl Lexer {
     }
 
     fn take_tag_name(&mut self, start: usize) -> String {
-        self.take_while_from(start, |x| x.is_alphabetic() || x.is_alphanumeric())
+        self.take_while_from(start, |x| x.is_ascii_alphabetic() || x.is_ascii_alphanumeric())
     }
 
     fn take_text_content(&mut self) {
-        let value = self.take_while(|x| x != '<');
-        let value = value.replace("\n", "");
-        let value = value.replace("\t", "");
-        let value = value.trim().to_string();
+        let mut value = self.take_while(|x| x != 60); 
+
+        if let Some(last) = self.tag_stack.last().cloned() {
+            if last == "script" || last == "noscript" {
+                let characters = format!("</{last}");
+                value = self.take_until_pattern(&characters.as_bytes());
+            }
+        } 
+
+        value = value.replace("\n", "");
+        value = value.replace("\t", "");
+        value = value.trim().to_string();
 
         if value.is_empty() {
             return;
@@ -163,7 +174,7 @@ impl Lexer {
     fn take_attributes(&mut self) {
         // after start a element, until we go to '>' | '/', means we are collecting attributes
         // eg, `<tag key=value key=value>` || `<tag key=value />`;
-        while (self.content[0] != '>') && (self.content[0] != '/') {
+        while (self.content[0] != 62) && (self.content[0] != 47) {
             self.take_attribute()
         }
     }
@@ -173,7 +184,7 @@ impl Lexer {
         self.take_whitespaces();
 
         let key =
-            self.take_while(|x| x.is_alphabetic() || x.is_alphanumeric() || x == '-' || x == '_');
+            self.take_while(|x| x.is_ascii_alphanumeric() || x == 45 || x == 95);
 
         let value = self.take_attribute_value();
 
@@ -183,7 +194,7 @@ impl Lexer {
     }
 
     fn take_attribute_value(&mut self) -> String {
-        if self.content.is_empty() || self.content[0] != '=' {
+        if self.content.is_empty() || self.content[0] != 61 {
             return String::from("");
         }
 
@@ -194,7 +205,7 @@ impl Lexer {
         // TODO: Implement string logic.
         let value = self.take_while(|x| {
             // String identifire
-            if x == '"' {
+            if x == 34 {
                 qoute_count += 1;
                 return if qoute_count == 2 { false } else { true };
             }
@@ -204,7 +215,7 @@ impl Lexer {
                 return true;
             }
 
-            x != ' ' || x != '>' || x != '/'
+            x != 32 && x != 62 && x != 45
         });
 
         if qoute_count == 0 {
@@ -219,19 +230,19 @@ impl Lexer {
     }
 
     fn take_whitespaces(&mut self) {
-        self.take_while(|x| x.is_whitespace());
+        self.take_while(|x| x.is_ascii_whitespace());
     }
 
     fn take_while<F>(&mut self, predict: F) -> String
     where
-        F: FnMut(char) -> bool,
+        F: FnMut(u8) -> bool,
     {
         self.take_while_from(0, predict)
     }
 
     fn take_while_from<F>(&mut self, start: usize, mut predict: F) -> String
     where
-        F: FnMut(char) -> bool,
+        F: FnMut(u8) -> bool,
     {
         let mut i = start;
 
@@ -242,9 +253,25 @@ impl Lexer {
         self.get_slice(start, i)
     }
 
+    fn take_until_pattern(&mut self, pattern: &[u8]) -> String {
+        let mut i = 0;
+        
+        while i < self.content.len() {
+            if self.content[i..].starts_with(pattern) {
+                break;
+            }
+
+            i += 1;
+        }
+
+        self.get_slice(0, i)
+    }
+
     fn get_slice(&mut self, from: usize, to: usize) -> String {
-        let value = self.content[from..to].iter().collect::<String>();
-        self.content = self.content[to..].to_vec();
+        let token = &self.content[from..to];
+        let value = String::from_utf8(token.to_vec()).expect(format!("Found invalid UTF-8: {token:?}").as_str());
+
+        self.content = &self.content[to..];
 
         value
     }
